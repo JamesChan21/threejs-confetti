@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<title>Threejs Confetti</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<link type="text/css" rel="stylesheet" href="main.css">
+</head>
+
+<body>
+	<script type="module">
+
+		import * as THREE from './lib/three.module.js';
+
+			const defaultColors = ["#a864fd", "#29cdff", "#78ff44", "#ff718d", "#fdff6a"];
+
+			const defaults = {
+				angle: 90,
+				spread: 45,
+				startVelocity: 45,
+				elementCount: 50,
+				width: 10,
+				height: 10,
+				colors: defaultColors,
+				duration: 3000,
+				stagger: 0,
+				dragFriction: 0.1,
+				random: Math.random
+			};
+
+			var renderer;
+			var cameraOrtho, sceneOrtho;
+			var sprite_group = [];
+			function SpriteInfo() {
+				this.sprite = null;
+				this.physics = {};
+			}
+
+			init();
+
+			animate(sprite_group, defaults.dragFriction, defaults.decay, defaults.duration, defaults.stagger);
+			
+			function init() {
+
+				var width = window.innerWidth;
+				var height = window.innerHeight;
+
+
+				cameraOrtho = new THREE.OrthographicCamera( - width / 2, width / 2, height / 2, - height / 2, 1, 10 );
+				cameraOrtho.position.z = 10;
+
+				sceneOrtho = new THREE.Scene();
+
+				// create confetti
+				createConfetti();
+
+				// renderer
+				renderer = new THREE.WebGLRenderer();
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.autoClear = false; // To allow render overlay on top of sprited sphere
+
+				document.body.appendChild( renderer.domElement );
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+			}
+
+			function randomPhysics(angle, spread, startVelocity, random) {
+				const radAngle = angle * (Math.PI / 180);
+				const radSpread = spread * (Math.PI / 180);
+				return {
+					x: 0,
+					y: 0,
+					wobble: random() * 10,
+					wobbleSpeed: 0.1 + random() * 0.1,
+					velocity: startVelocity * 0.5 + random() * startVelocity,
+					angle2D: -(-radAngle + (0.5 * radSpread - random() * radSpread)),
+					angle3D: -(-(Math.PI / 4) + random() * (Math.PI / 2)),
+					tiltAngle: random() * Math.PI,
+					tiltAngleSpeed: 0.1 + random() * 0.3
+				};
+			}
+
+			function createConfetti() {
+				
+				var geometry = new THREE.PlaneGeometry( defaults.width, defaults.height, 32 );
+
+				Array.from({ length: defaults.elementCount }).map((_, index) => {
+
+					const color = defaults.colors[index % defaults.colors.length];
+
+					let g = geometry.clone();
+					var material = new THREE.MeshBasicMaterial( {color: color, side: THREE.DoubleSide} );
+					var plane = new THREE.Mesh( g, material );
+					sceneOrtho.add( plane );
+
+					var SI = new SpriteInfo();
+					SI.sprite = plane;
+					SI.physics = randomPhysics(defaults.angle, defaults.spread, defaults.startVelocity, Math.random);
+					sprite_group.push(SI);
+				});
+
+			}
+
+			function onWindowResize() {
+
+				var width = window.innerWidth;
+				var height = window.innerHeight;
+
+				cameraOrtho.left = - width / 2;
+				cameraOrtho.right = width / 2;
+				cameraOrtho.top = height / 2;
+				cameraOrtho.bottom = - height / 2;
+				cameraOrtho.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			function updateFetti(fetti, progress, dragFriction, decay) {
+				/* eslint-disable no-param-reassign */
+				fetti.physics.x += Math.cos(fetti.physics.angle2D) * fetti.physics.velocity;
+				fetti.physics.y += Math.sin(fetti.physics.angle2D) * fetti.physics.velocity;
+				// fetti.physics.z += Math.sin(fetti.physics.angle3D) * fetti.physics.velocity;
+				fetti.physics.wobble += fetti.physics.wobbleSpeed;
+				// Backward compatibility
+				if (decay) {
+					fetti.physics.velocity *= decay;
+				} else {
+					fetti.physics.velocity -= fetti.physics.velocity * dragFriction;
+				}
+				fetti.physics.y -= 3;
+				fetti.physics.tiltAngle += fetti.physics.tiltAngleSpeed;
+
+				const { x, y, tiltAngle, wobble } = fetti.physics;
+
+				const wobbleX = x + 10 * Math.cos(wobble);
+				const wobbleY = y + 10 * Math.sin(wobble);
+
+				fetti.sprite.position.set( wobbleX, wobbleY, 1 );
+				fetti.sprite.rotation.set( tiltAngle, tiltAngle, 1)
+				// rotation: Math.PI / 4
+				console.log(fetti.sprite)
+				fetti.sprite.material.transparent = true;
+				fetti.sprite.material.opacity = 1 - progress;
+				
+				/* eslint-enable */
+			}
+
+			function animate(fettis, dragFriction, decay, duration, stagger) {
+
+				let startTime;
+
+				new Promise(resolve => {
+
+					function update(time) {
+
+						if (!startTime) startTime = time;
+						const elapsed = time - startTime;
+						const progress = startTime === time ? 0 : (time - startTime) / duration;
+
+						fettis.slice(0, Math.ceil(elapsed / stagger)).forEach((fetti,index)=> {
+							if(index == 0){
+							// console.log("x: ", Math.cos(fetti.physics.angle2D) * fetti.physics.velocity)
+							}
+							updateFetti(fetti, progress, dragFriction, decay);
+						});
+
+						if (time - startTime < duration) {
+							render();
+							requestAnimationFrame(update);
+						} else {
+							fettis.forEach(fetti => {
+								if(fetti.sprite != null){
+									sceneOrtho.remove(fetti.sprite)
+								}
+							})
+							resolve();
+						}
+					}
+
+					requestAnimationFrame(update);
+				});
+			}
+
+			function render() {
+
+				renderer.clearDepth();
+				renderer.render( sceneOrtho, cameraOrtho );
+
+			}
+
+		</script>
+</body>
+
+</html>
